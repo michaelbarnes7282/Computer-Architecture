@@ -8,6 +8,16 @@ POP = "0b01000110"
 PRN = "0b01000111"
 HLT = "0b00000001"
 MULT = "0b10100010"
+CALL = "0b01010000"
+RET = '0b00010001'
+ADD = "0b10100000"
+CMP = "0b10100111"
+JEQ = "0b01010101"
+JNE = "0b01010110"
+JMP = '0b01010100'
+AND = "0b10101000"
+ST = "0b10000100"
+PRA = "0b01001000"
 
 
 class CPU:
@@ -19,7 +29,13 @@ class CPU:
         self.reg = [0] * 8
         self.pc = 0
         self.running = True
-        self.reg[7] = 0xf4
+        self.SP = 7
+        self.FL = "00000000"
+        self.ET = "00000001"
+        self.GT = "00000010"
+        self.LT = "00000100"
+        self.reg[self.SP] = 0xf4
+
 
         self.branchtable = {}
         self.branchtable[LDI] = self.LDI
@@ -28,6 +44,16 @@ class CPU:
         self.branchtable[PRN] = self.PRN
         self.branchtable[HLT] = self.HLT
         self.branchtable[MULT] = self.MUL
+        self.branchtable[CALL] = self.CALL
+        self.branchtable[RET] = self.RET
+        self.branchtable[ADD] = self.ADD
+        self.branchtable[CMP] = self.CMP
+        self.branchtable[JEQ] = self.JEQ
+        self.branchtable[JNE] = self.JNE
+        self.branchtable[JMP] = self.JMP
+        self.branchtable[AND] = self.AND
+        self.branchtable[ST] = self.ST
+        self.branchtable[PRA] = self.PRA
 
     def HLT(self):
         self.running = False
@@ -51,11 +77,11 @@ class CPU:
         self.pc += 3
 
     def PUSH(self):
-        self.reg[7] -= 1
+        self.reg[self.SP] -= 1
         reg_num = int(self.ram[self.pc + 1], 2)
         value = self.reg[reg_num]
 
-        top_of_stack_addr = self.reg[7]
+        top_of_stack_addr = self.reg[self.SP]
         self.ram[top_of_stack_addr] = value
 
         self.pc += 2
@@ -64,8 +90,70 @@ class CPU:
         reg_num = int(self.ram[self.pc + 1], 2)
         value = self.ram[self.reg[7]]
         self.reg[reg_num] = value
-        self.reg[7] += 1
+        self.reg[self.SP] += 1
         self.pc += 2
+
+    def CALL(self):
+        ret_address = self.pc + 2
+        self.reg[self.SP] -= 1
+        self.ram[self.reg[self.SP]] = ret_address
+
+        reg_num = int(self.ram[self.pc + 1], 2)
+        self.pc = self.reg[reg_num]
+
+    def RET(self):
+        ret_addr = self.ram[self.reg[self.SP]]
+        self.reg[self.SP] += 1
+
+        self.pc = ret_addr
+    
+    def ADD(self):
+        reg1_num = int(self.ram[self.pc + 1], 2)
+        reg2_num = int(self.ram[self.pc + 2] ,2)
+        self.alu("ADD", reg1_num, reg2_num)
+        self.pc += 3
+
+    def CMP(self):
+        reg1_num = int(self.ram[self.pc + 1], 2)
+        reg2_num = int(self.ram[self.pc + 2] ,2)
+        self.alu("CMP", reg1_num, reg2_num)
+        self.pc += 3
+    
+    def JEQ(self):
+        if self.FL == self.ET:
+            reg_num = int(self.ram[self.pc + 1], 2)
+            value = self.reg[reg_num]
+            self.pc = value
+        else: self.pc += 2
+    
+    def JNE(self):
+        if self.FL != self.ET:
+            reg_num = int(self.ram[self.pc + 1], 2)
+            value = self.reg[reg_num]
+            self.pc = value
+        else: self.pc += 2
+
+    def JMP(self):
+        reg_num = int(self.ram[self.pc + 1], 2)
+        value = self.reg[reg_num]
+        self.pc = value
+    
+    def AND(self):
+        reg1_num = int(self.ram[self.pc + 1], 2)
+        reg2_num = int(self.ram[self.pc + 2] ,2)
+        self.alu("AND", reg1_num, reg2_num)
+        self.pc += 3
+
+    def ST(self):
+        addr = self.reg[self.pc + 1]
+        value = self.reg[int(self.ram[self.pc + 2] ,2)]
+        self.ram[addr] = value
+        self.pc += 3
+    
+    def PRA(self):
+        reg_num = int(self.ram[self.pc + 1], 2)
+        num = self.reg[reg_num]
+        print(chr(num))
 
     def ram_read(self, pc):
         return self.ram[pc]
@@ -128,7 +216,21 @@ class CPU:
 
         if op == "ADD":
             self.reg[reg_a] += self.reg[reg_b]
-        # elif op == "SUB": etc
+        elif op == "CMP":
+            if self.reg[reg_a] == self.reg[reg_b]:
+                self.FL = self.ET
+            elif self.reg[reg_a] < self.reg[reg_b]:
+                self.FL = self.LT
+            elif self.reg[reg_a] > self.reg[reg_b]:
+                self.FL = self.GT
+        elif op == "AND":
+            str1 = self.reg[reg_a]
+            str2 = self.reg[reg_b]
+            res = ""
+            for i in range(len()):
+                res = res + str(int(str1[i]) & int(str2[i]))
+
+            self.reg[reg_a] = res
         else:
             raise Exception("Unsupported ALU operation")
 
@@ -142,9 +244,9 @@ class CPU:
             self.pc,
             # self.fl,
             # self.ie,
-            self.ram_read(self.pc),
-            self.ram_read(self.pc + 1),
-            self.ram_read(self.pc + 2)
+            int(self.ram_read(self.pc), 2),
+            int(self.ram_read(self.pc + 1), 2),
+            int(self.ram_read(self.pc + 2), 2)
         ), end='')
 
         for i in range(8):
